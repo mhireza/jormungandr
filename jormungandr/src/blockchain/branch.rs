@@ -1,11 +1,16 @@
 use crate::blockchain::Ref;
-use std::{convert::Infallible, sync::Arc};
+use futures03::{
+    future::FutureExt,
+    stream::{futures_unordered::FuturesUnordered, StreamExt},
+};
+use std::{convert::Infallible, iter::FromIterator, sync::Arc};
 use tokio::{prelude::*, sync::lock::Lock};
+use tokio02::sync::RwLock;
 use tokio_compat::prelude::*;
 
 #[derive(Clone)]
 pub struct Branches {
-    inner: Lock<BranchesData>,
+    inner: Arc<RwLock<BranchesData>>,
 }
 
 struct BranchesData {
@@ -28,50 +33,31 @@ struct BranchData {
 impl Branches {
     pub fn new() -> Self {
         Branches {
-            inner: Lock::new(BranchesData {
+            inner: Arc::new(RwLock::new(BranchesData {
                 branches: Vec::new(),
-            }),
+            })),
         }
     }
 
-    pub fn add(&mut self, branch: Branch) -> impl Future<Item = (), Error = Infallible> {
-        let mut branches = self.clone();
-        future::poll_fn(move || Ok(branches.inner.poll_lock()))
-            .map(move |mut guard| guard.add(branch))
+    pub async fn add(&mut self, branch: Branch) {
+        let mut guard = self.inner.write().await;
+        guard.add(branch);
     }
 
-    pub fn apply_or_create(
-        &mut self,
-        candidate: Arc<Ref>,
-    ) -> impl Future<Item = Branch, Error = Infallible> {
-        let mut branches = self.clone();
-        self.apply(Arc::clone(&candidate))
-            .and_then(move |opt_branch| {
-                if let Some(branch) = opt_branch {
-                    future::Either::A(future::ok(branch))
-                } else {
-                    future::Either::B(branches.create(candidate))
-                }
-            })
+    pub async fn apply_or_create(&mut self, candidate: Arc<Ref>) -> Branch {
+        let mut guard = self.inner.write().await;
+        if let Some(branch) = guard.apply(Arc::clone(&candidate)).await {
+            branch
+        } else {
+            let branch = Branch::new(candidate);
+            guard.add(branch.clone());
+            branch
+        }
     }
 
-    pub fn branches(&self) -> impl Future<Item = Vec<Arc<Ref>>, Error = ()> {
-        let mut branches = self.clone();
-        future::poll_fn(move || Ok(branches.inner.poll_lock())).and_then(|guard| guard.branches())
-    }
-
-    fn apply(
-        &mut self,
-        candidate: Arc<Ref>,
-    ) -> impl Future<Item = Option<Branch>, Error = Infallible> {
-        let mut branches = self.clone();
-        future::poll_fn(move || Ok(branches.inner.poll_lock()))
-            .and_then(move |mut guard| guard.apply(candidate))
-    }
-
-    fn create(&mut self, candidate: Arc<Ref>) -> impl Future<Item = Branch, Error = Infallible> {
-        let branch = Branch::new(candidate);
-        self.add(branch.clone()).map(move |()| branch)
+    pub async fn branches(&self) -> Vec<Arc<Ref>> {
+        let guard = self.inner.read().await;
+        guard.branches().await
     }
 }
 
@@ -80,23 +66,25 @@ impl BranchesData {
         self.branches.push(branch)
     }
 
-    pub fn apply(
-        &mut self,
-        candidate: Arc<Ref>,
-    ) -> impl Future<Item = Option<Branch>, Error = Infallible> {
-        stream::futures_unordered(
-            self.branches
-                .iter_mut()
-                .map(|branch| branch.continue_with(Arc::clone(&candidate))),
-        )
-        .filter_map(|updated| updated)
-        .into_future()
-        .map_err(|(e, _)| e)
-        .map(|(v, _)| v)
+    pub async fn apply(&mut self, candidate: Arc<Ref>) -> Option<Branch> {
+        let branches_futures = self
+            .branches
+            .iter_mut()
+            .map(|branch| branch.continue_with(Arc::clone(&candidate)));
+
+        FuturesUnordered::from_iter(branches_futures)
+            .filter_map(|updated| async move { updated }.boxed())
+            .into_future()
+            .map(|(v, _)| v)
+            .await
     }
 
-    pub fn branches<E>(&self) -> impl Future<Item = Vec<Arc<Ref>>, Error = E> {
-        stream::futures_unordered(self.branches.iter().map(|b| b.get_ref())).collect()
+    pub async fn branches(&self) -> Vec<Arc<Ref>> {
+        let branches_futures = self.branches.iter().map(|b| b.get_ref_std());
+
+        FuturesUnordered::from_iter(branches_futures)
+            .collect()
+            .await
     }
 }
 
@@ -138,15 +126,15 @@ impl Branch {
         future::poll_fn(move || Ok(branch.poll_lock())).map(move |mut guard| guard.update(new_ref))
     }
 
-    fn continue_with(
-        &mut self,
-        candidate: Arc<Ref>,
-    ) -> impl Future<Item = Option<Self>, Error = Infallible> {
+    async fn continue_with(&mut self, candidate: Arc<Ref>) -> Option<Self> {
         let clone_branch = self.clone();
         let mut branch = self.inner.clone();
-        future::poll_fn(move || Ok(branch.poll_lock()))
+        let r: Result<_, ()> = future::poll_fn(move || Ok(branch.poll_lock()))
             .map(move |mut guard| guard.continue_with(candidate))
             .map(move |r| if r { Some(clone_branch) } else { None })
+            .compat()
+            .await;
+        r.unwrap()
     }
 }
 

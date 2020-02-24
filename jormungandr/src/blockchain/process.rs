@@ -267,7 +267,7 @@ fn try_request_fragment_removal(
 /// this is because a branch may have become more interesting with time
 /// moving forward and branches may have been dismissed
 async fn reprocess_tip(logger: Logger, mut blockchain: Blockchain, tip: Tip) -> Result<(), Error> {
-    let branches: Vec<Arc<Ref>> = blockchain.branches().branches().compat().await.unwrap();
+    let branches: Vec<Arc<Ref>> = blockchain.branches().branches().await;
 
     let tip_as_ref = tip.get_ref_std().await;
 
@@ -330,12 +330,7 @@ pub async fn process_new_ref(
                     tip_ref.header().description(),
                     candidate.header().description(),
                 );
-                let branch = blockchain
-                    .branches_mut()
-                    .apply_or_create(candidate)
-                    .compat()
-                    .await
-                    .unwrap();
+                let branch = blockchain.branches_mut().apply_or_create(candidate).await;
                 tip.swap_std(branch).await;
                 true
             }
@@ -708,7 +703,7 @@ async fn process_chain_headers(
             );
             reply.reply_error(chain_header_error_into_reply(e));
         }
-        Ok((header_ids, maybe_remainder)) => {
+        Ok((header_ids, _maybe_remainder)) => {
             header_ids
                 .iter()
                 .try_for_each(|header_id| pull_headers_scheduler.declare_completed(*header_id))

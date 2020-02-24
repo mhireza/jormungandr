@@ -547,8 +547,6 @@ impl Blockchain {
     /// * the block0 does build an invalid `Ledger`: `ErrorKind::Block0InitialLedgerError`;
     ///
     async fn apply_block0(&self, block0: &Block) -> Result<Branch> {
-        use tokio_compat::prelude::*;
-
         let block0_id = block0.header.hash();
         let block0_date = block0.header.block_date();
 
@@ -590,7 +588,7 @@ impl Blockchain {
             )
             .await;
         let b = Branch::new(b);
-        branches.add(b.clone()).compat().await.unwrap();
+        branches.add(b.clone()).await;
         Ok(b)
     }
 
