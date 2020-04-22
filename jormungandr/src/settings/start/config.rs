@@ -3,7 +3,9 @@ use crate::{
     settings::logging::{LogFormat, LogOutput},
     settings::LOG_FILTER_LEVEL_POSSIBLE_VALUES,
 };
+pub use jormungandr_lib::interfaces::{Cors, Rest, Tls};
 use jormungandr_lib::{interfaces::Mempool, time::Duration};
+
 use poldercast;
 use serde::{de::Error as _, de::Visitor, Deserialize, Deserializer, Serialize, Serializer};
 use slog::FilterLevel;
@@ -53,35 +55,6 @@ pub struct ConfigLogSettingsEntry {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ConfigLogSettings(pub Vec<ConfigLogSettingsEntry>);
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct Rest {
-    pub listen: SocketAddr,
-    /// Enables TLS and disables plain HTTP if provided
-    pub tls: Option<Tls>,
-    /// Enables CORS if provided
-    pub cors: Option<Cors>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct Tls {
-    /// Path to server X.509 certificate chain file, must be PEM-encoded and contain at least 1 item
-    pub cert_file: String,
-    /// Path to server private key file, must be PKCS8 with single PEM-encoded, unencrypted key
-    pub priv_key_file: String,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct Cors {
-    /// If none provided, echos request origin
-    #[serde(default)]
-    pub allowed_origins: Vec<String>,
-    /// If none provided, CORS responses won't be cached
-    pub max_age_secs: Option<u64>,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
