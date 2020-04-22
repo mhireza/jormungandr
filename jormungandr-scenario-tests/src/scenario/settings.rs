@@ -190,6 +190,8 @@ impl Prepare for Rest {
     {
         Rest {
             listen: context.generate_new_rest_listen_address(),
+            tls: None,
+            cors: None,
         }
     }
 }

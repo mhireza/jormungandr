@@ -1701,6 +1701,7 @@ dependencies = [
 name = "jormungandr-lib"
 version = "0.8.19-nightly"
 dependencies = [
+ "bawawa",
  "bech32",
  "bincode",
  "cardano-legacy-address",
@@ -1712,6 +1713,7 @@ dependencies = [
  "chrono",
  "ed25519-bip32",
  "flate2",
+ "futures 0.1.29",
  "hex",
  "humantime",
  "os_info",
@@ -1727,6 +1729,7 @@ dependencies = [
  "sysinfo",
  "tar",
  "thiserror",
+ "tokio-codec",
  "typed-bytes",
  "zip",
 ]

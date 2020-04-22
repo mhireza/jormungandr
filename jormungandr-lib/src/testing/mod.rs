@@ -4,6 +4,7 @@ pub mod github;
 /// Module contains cross project test utils
 mod measurement;
 pub mod network_builder;
+pub mod openssl;
 mod web;
 
 pub use archive::decompress;
@@ -14,4 +15,6 @@ pub use measurement::{
     EnduranceBenchmarkDef, EnduranceBenchmarkFinish, EnduranceBenchmarkRun, ResourcesUsage, Speed,
     SpeedBenchmarkDef, SpeedBenchmarkFinish, SpeedBenchmarkRun, Thresholds, Timestamp,
 };
+pub use openssl::Openssl;
+
 pub use web::download_file;
