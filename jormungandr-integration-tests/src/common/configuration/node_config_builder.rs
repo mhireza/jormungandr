@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use jormungandr_lib::{
     interfaces::{
-        Explorer, Log, LogEntry, LogOutput, Mempool, NodeConfig, P2p, Policy, Rest,
+        Explorer, Log, LogEntry, LogOutput, Mempool, NodeConfig, P2p, Policy, Rest, Tls,
         TopicsOfInterest, TrustedPeer,
     },
     time::Duration,
@@ -110,6 +110,11 @@ impl NodeConfigBuilder {
 
     pub fn with_listen_address(&mut self, listen_address: String) -> &mut Self {
         self.p2p.listen_address = Some(listen_address.parse().unwrap());
+        self
+    }
+
+    pub fn with_rest_tls_config(&mut self, tls: Tls) -> &mut Self {
+        self.rest.tls = Some(tls);
         self
     }
 

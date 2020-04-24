@@ -12,7 +12,7 @@ use chain_impl_mockchain::{chaintypes::ConsensusVersion, fee::LinearFee};
 use jormungandr_lib::interfaces::{
     ActiveSlotCoefficient, Block0Configuration, ConsensusLeaderId, EpochStabilityDepth, Initial,
     InitialUTxO, KESUpdateSpeed, Log, Mempool, NumberOfSlotsPerEpoch, Policy, SignedCertificate,
-    SlotDuration, TrustedPeer,
+    SlotDuration, Tls, TrustedPeer,
 };
 
 use std::path::PathBuf;
@@ -104,6 +104,11 @@ impl ConfigurationBuilder {
 
     pub fn with_explorer(&mut self) -> &mut Self {
         self.node_config_builder.with_explorer();
+        self
+    }
+
+    pub fn with_rest_tls_config(&mut self, tls: Tls) -> &mut Self {
+        self.node_config_builder.with_rest_tls_config(tls);
         self
     }
 

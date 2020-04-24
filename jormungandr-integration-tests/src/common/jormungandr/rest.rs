@@ -2,6 +2,7 @@ use crate::common::configuration::jormungandr_config::JormungandrConfig;
 use jormungandr_lib::interfaces::{
     EpochRewardsInfo, Info, NodeStatsDto, PeerRecord, PeerStats, StakeDistributionDto,
 };
+use std::{fs::File, io::Read, path::PathBuf};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -15,11 +16,26 @@ pub enum RestError {
 #[derive(Debug)]
 pub struct JormungandrRest {
     config: JormungandrConfig,
+    certificate: Option<reqwest::Certificate>,
 }
 
 impl JormungandrRest {
     pub fn new(config: JormungandrConfig) -> Self {
-        Self { config: config }
+        Self {
+            config: config,
+            certificate: None,
+        }
+    }
+
+    pub fn new_with_cert(config: JormungandrConfig, cert_file: PathBuf) -> Self {
+        let mut buf = Vec::new();
+        let path = cert_file.as_os_str().to_str().unwrap();
+        File::open(path).unwrap().read_to_end(&mut buf).unwrap();
+        let cert = reqwest::Certificate::from_pem(&buf).unwrap();
+        Self {
+            config: config,
+            certificate: Some(cert),
+        }
     }
 
     fn print_response_text(&self, text: &str) {
@@ -41,7 +57,24 @@ impl JormungandrRest {
     }
 
     fn get(&self, path: &str) -> Result<reqwest::blocking::Response, reqwest::Error> {
-        reqwest::blocking::get(&format!("{}/v0/{}", self.config.get_node_address(), path))
+        match &self.certificate {
+            None => {
+                reqwest::blocking::get(&format!("{}/v0/{}", self.config.get_node_address(), path))
+            }
+            Some(cert) => {
+                let client = reqwest::blocking::Client::builder()
+                    .add_root_certificate(cert.clone())
+                    .build()
+                    .unwrap();
+                client
+                    .get(&format!(
+                        "{}/v0/{}",
+                        self.config.get_node_address().replace("http", "https"),
+                        path
+                    ))
+                    .send()
+            }
+        }
     }
 
     pub fn stake_distribution(&self) -> Result<StakeDistributionDto, RestError> {

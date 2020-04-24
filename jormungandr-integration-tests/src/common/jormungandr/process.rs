@@ -45,6 +45,10 @@ impl JormungandrProcess {
         JormungandrRest::new(self.config.clone())
     }
 
+    pub fn secure_rest(&self, cert: PathBuf) -> JormungandrRest {
+        JormungandrRest::new_with_cert(self.config.clone(), cert)
+    }
+
     pub fn shutdown(&self) {
         jcli_wrapper::assert_rest_shutdown(&self.config.get_node_address());
     }
