@@ -1,6 +1,8 @@
 use self::{
     client::GraphQLClient,
-    data::{ExplorerLastBlock, ExplorerTransaction, GraphQLQuery, GraphQLResponse},
+    data::{
+        ExplorerLastBlock, ExplorerStakePool, ExplorerTransaction, GraphQLQuery, GraphQLResponse,
+    },
 };
 use jormungandr_lib::crypto::hash::Hash;
 use std::convert::TryFrom;
@@ -59,5 +61,21 @@ impl Explorer {
         let response: GraphQLResponse =
             serde_json::from_str(&text).map_err(|e| ExplorerError::SerializationError(e))?;
         ExplorerTransaction::try_from(response).map_err(|e| e.into())
+    }
+
+    pub fn get_stake_pool(&self, id: Hash) -> Result<ExplorerStakePool, ExplorerError> {
+        let query = ExplorerStakePool::query_by_id(id);
+        let request_response = self
+            .client
+            .run(query)
+            .map_err(|e| ExplorerError::ClientError(e))?;
+        println!("{:?}", request_response);
+        let text = request_response
+            .text()
+            .map_err(|e| client::GraphQLClientError::ReqwestError(e))?;
+        println!("{:?}", text);
+        let response: GraphQLResponse =
+            serde_json::from_str(&text).map_err(|e| ExplorerError::SerializationError(e))?;
+        ExplorerStakePool::try_from(response).map_err(|e| e.into())
     }
 }
