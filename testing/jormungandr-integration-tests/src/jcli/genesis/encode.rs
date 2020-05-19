@@ -1,21 +1,26 @@
 use crate::common::{
-    configuration::{jormungandr_config::JormungandrConfig, Block0ConfigurationBuilder},
-    file_assert, file_utils, jcli_wrapper,
+    configuration::{jormungandr_config::JormungandrParams, Block0ConfigurationBuilder},
+    file_utils, jcli_wrapper,
     jormungandr::ConfigurationBuilder,
     startup,
 };
 use chain_addr::Discrimination;
 use chain_impl_mockchain::fee::{LinearFee, PerCertificateFee, PerVoteCertificateFee};
 use jormungandr_lib::interfaces::{Initial, InitialUTxO, LegacyUTxO};
+
+use assert_fs::TempDir;
 use std::num::NonZeroU64;
+
 #[test]
 pub fn test_genesis_block_is_built_from_correct_yaml() {
-    startup::build_genesis_block(&Block0ConfigurationBuilder::new().build());
+    let temp_dir = TempDir::new().unwrap();
+    let config = Block0ConfigurationBuilder::new().build();
+    startup::build_genesis_block(&config, &temp_dir);
 }
 
 #[test]
 pub fn test_genesis_with_empty_consenus_leaders_list_fails_to_build() {
-    let mut config: JormungandrConfig = Default::default();
+    let mut config: JormungandrParams = Default::default();
     let mut block0_configuration = config.block0_configuration_mut();
     block0_configuration
         .blockchain_configuration
@@ -28,7 +33,7 @@ pub fn test_genesis_with_empty_consenus_leaders_list_fails_to_build() {
 
 #[test]
 pub fn test_genesis_for_production_is_successfully_built() {
-    let mut config: JormungandrConfig = Default::default();
+    let mut config: JormungandrParams = Default::default();
     let mut block0_configuration = config.block0_configuration_mut();
     block0_configuration.initial.clear();
     block0_configuration.blockchain_configuration.discrimination = Discrimination::Production;
@@ -43,7 +48,7 @@ pub fn test_genesis_for_prod_with_initial_funds_for_testing_address_fail_to_buil
     let public_key = jcli_wrapper::assert_key_to_public_default(&private_key);
     let test_address = jcli_wrapper::assert_address_single(&public_key, Discrimination::Test);
 
-    let mut config: JormungandrConfig = Default::default();
+    let mut config: JormungandrParams = Default::default();
     let mut block0_configuration = config.block0_configuration_mut();
     block0_configuration.initial = vec![Initial::Fund(vec![InitialUTxO {
         value: 100.into(),
@@ -58,7 +63,7 @@ pub fn test_genesis_for_prod_with_initial_funds_for_testing_address_fail_to_buil
 
 #[test]
 pub fn test_genesis_for_prod_with_wrong_discrimination_fail_to_build() {
-    let mut config: JormungandrConfig = Default::default();
+    let mut config: JormungandrParams = Default::default();
     let mut block0_configuration = config.block0_configuration_mut();
     block0_configuration.blockchain_configuration.discrimination = Discrimination::Production;
     jcli_wrapper::assert_genesis_encode_fails(
@@ -69,7 +74,7 @@ pub fn test_genesis_for_prod_with_wrong_discrimination_fail_to_build() {
 
 #[test]
 pub fn test_genesis_without_initial_funds_is_built_successfully() {
-    let mut config: JormungandrConfig = Default::default();
+    let mut config: JormungandrParams = Default::default();
     let block0_configuration = config.block0_configuration_mut();
     block0_configuration.initial.clear();
     let input_yaml_file_path = startup::serialize_block0_config(config.block0_configuration());
@@ -79,7 +84,7 @@ pub fn test_genesis_without_initial_funds_is_built_successfully() {
 
 #[test]
 pub fn test_genesis_with_many_initial_funds_is_built_successfully() {
-    let mut config: JormungandrConfig = Default::default();
+    let mut config: JormungandrParams = Default::default();
     let address_1 = startup::create_new_account_address();
     let address_2 = startup::create_new_account_address();
     let initial_funds = Initial::Fund(vec![
@@ -101,7 +106,7 @@ pub fn test_genesis_with_many_initial_funds_is_built_successfully() {
 
 #[test]
 pub fn test_genesis_with_legacy_funds_is_built_successfully() {
-    let mut config: JormungandrConfig = Default::default();
+    let mut config: JormungandrParams = Default::default();
     let legacy_funds = Initial::LegacyFund(
             vec![
                 LegacyUTxO{

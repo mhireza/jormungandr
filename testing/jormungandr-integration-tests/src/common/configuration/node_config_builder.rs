@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use super::file_utils;
+use assert_fs::fixture::PathChild;
 use std::path::PathBuf;
 
 use jormungandr_lib::{
@@ -11,7 +11,6 @@ use jormungandr_lib::{
     time::Duration,
 };
 
-#[derive(Debug, Clone)]
 pub struct NodeConfigBuilder {
     pub storage: Option<PathBuf>,
     pub log: Option<Log>,
@@ -23,20 +22,19 @@ pub struct NodeConfigBuilder {
 
 const DEFAULT_HOST: &str = "127.0.0.1";
 
+fn default_log(temp_dir: &impl PathChild) -> Log {
+    let log_file = temp_dir.child("node.log");
+    Log(vec![LogEntry {
+        level: "trace".to_string(),
+        format: "json".to_string(),
+        output: LogOutput::File(log_file.path().to_str().unwrap().into()),
+    }])
+}
+
 impl NodeConfigBuilder {
     pub fn new() -> NodeConfigBuilder {
         let rest_port = super::get_available_port();
         let public_address_port = super::get_available_port();
-        let log = Some(Log(vec![LogEntry {
-            level: "trace".to_string(),
-            format: "json".to_string(),
-            output: LogOutput::File(
-                file_utils::get_path_in_temp("log.log")
-                    .into_os_string()
-                    .into_string()
-                    .unwrap(),
-            ),
-        }]));
         let grpc_public_address: poldercast::Address = format!(
             "/ip4/{}/tcp/{}",
             DEFAULT_HOST,
@@ -47,7 +45,7 @@ impl NodeConfigBuilder {
 
         NodeConfigBuilder {
             storage: None,
-            log: log,
+            log: None,
             rest: Rest {
                 listen: format!("{}:{}", DEFAULT_HOST, rest_port.to_string())
                     .parse()
@@ -73,12 +71,6 @@ impl NodeConfigBuilder {
             mempool: Some(Mempool::default()),
             explorer: Explorer { enabled: false },
         }
-    }
-
-    pub fn serialize(node_config: &NodeConfig) -> PathBuf {
-        let content = serde_yaml::to_string(&node_config).expect("Canot serialize node config");
-        let node_config_file_path = file_utils::create_file_in_temp("node.config", &content);
-        node_config_file_path
     }
 
     pub fn with_explorer(&mut self) -> &mut Self {
@@ -121,10 +113,15 @@ impl NodeConfigBuilder {
         self
     }
 
-    pub fn build(&self) -> NodeConfig {
+    pub fn build(&self, temp_dir: &impl PathChild) -> NodeConfig {
+        let log = self
+            .log
+            .as_ref()
+            .cloned()
+            .unwrap_or_else(|| default_log(temp_dir));
         NodeConfig {
             storage: self.storage.clone(),
-            log: self.log.clone(),
+            log: Some(log),
             rest: self.rest.clone(),
             p2p: self.p2p.clone(),
             mempool: self.mempool.clone(),

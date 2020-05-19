@@ -1,5 +1,5 @@
 use crate::common::{
-    configuration::jormungandr_config::JormungandrConfig,
+    configuration::jormungandr_config::JormungandrParams,
     jormungandr::{ConfigurationBuilder, JormungandrProcess, Starter},
 };
 use crate::mock::client::JormungandrClient;
@@ -26,14 +26,14 @@ impl Config {
     }
 }
 
-pub fn bootstrap_node() -> (JormungandrProcess, JormungandrConfig) {
+pub fn bootstrap_node() -> (JormungandrProcess, JormungandrParams) {
     let config = ConfigurationBuilder::new().with_slot_duration(4).build();
     let server = Starter::new().config(config.clone()).start_async().unwrap();
     thread::sleep(Duration::from_secs(4));
     (server, config)
 }
 
-pub fn build_configuration(mock_port: u16) -> JormungandrConfig {
+pub fn build_configuration(mock_port: u16) -> JormungandrParams {
     let trusted_peer = TrustedPeer {
         address: format!("/ip4/{}/tcp/{}", LOCALHOST, mock_port)
             .parse()
@@ -47,7 +47,7 @@ pub fn build_configuration(mock_port: u16) -> JormungandrConfig {
         .build()
 }
 
-pub fn bootstrap_node_with_peer(mock_port: u16) -> (JormungandrProcess, JormungandrConfig) {
+pub fn bootstrap_node_with_peer(mock_port: u16) -> (JormungandrProcess, JormungandrParams) {
     let config = build_configuration(mock_port);
     let server = Starter::new().config(config.clone()).start_async().unwrap();
     thread::sleep(Duration::from_secs(4));

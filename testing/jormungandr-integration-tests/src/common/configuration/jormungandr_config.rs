@@ -1,140 +1,137 @@
 #![allow(dead_code)]
 
-use crate::common::{
-    configuration::NodeConfigBuilder, file_utils, jormungandr::ConfigurationBuilder,
-    legacy::BackwardCompatibleConfig,
-};
+use super::TestConfig;
 use chain_core::mempack;
 use chain_impl_mockchain::{block::Block, fee::LinearFee, fragment::Fragment};
-use jormungandr_lib::interfaces::{
-    Block0Configuration, NodeConfig, NodeSecret, TrustedPeer, UTxOInfo,
-};
+use jormungandr_lib::interfaces::{Block0Configuration, NodeConfig, NodeSecret, UTxOInfo};
 use jormungandr_testing_utils::wallet::Wallet;
-use std::path::PathBuf;
+
+use assert_fs::prelude::*;
+use assert_fs::TempDir;
+use serde::Serialize;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
-pub struct JormungandrConfig {
-    inner: BackwardCompatibleConfig,
+pub struct JormungandrParams<Conf = NodeConfig> {
+    genesis_block_path: PathBuf,
+    genesis_block_hash: String,
+    node_config: Conf,
+    secret_model_paths: Vec<PathBuf>,
+    block0_configuration: Block0Configuration,
+    secret_models: Vec<NodeSecret>,
+    rewards_history: bool,
 }
 
-impl JormungandrConfig {
-    pub fn new(
+impl<Conf: TestConfig> JormungandrParams<Conf> {
+    pub(crate) fn new(
         genesis_block_path: PathBuf,
         genesis_block_hash: String,
-        node_config_path: PathBuf,
+        node_config: Conf,
         secret_model_paths: Vec<PathBuf>,
         block0_configuration: Block0Configuration,
         secret_models: Vec<NodeSecret>,
         rewards_history: bool,
     ) -> Self {
-        Self {
-            inner: BackwardCompatibleConfig {
-                genesis_block_path,
-                genesis_block_hash,
-                node_config_path,
-                secret_model_paths,
-                block0_configuration,
-                secret_models,
-                rewards_history,
-            },
+        JormungandrParams {
+            genesis_block_path,
+            genesis_block_hash,
+            node_config,
+            secret_model_paths,
+            block0_configuration,
+            secret_models,
+            rewards_history,
         }
     }
 
     pub fn block0_configuration(&self) -> &Block0Configuration {
-        &self.inner.block0_configuration
+        &self.block0_configuration
     }
 
     pub fn block0_configuration_mut(&mut self) -> &mut Block0Configuration {
-        &mut self.inner.block0_configuration
+        &mut self.block0_configuration
     }
 
-    pub fn genesis_block_path(&self) -> &PathBuf {
-        &self.inner.genesis_block_path
+    pub fn genesis_block_path(&self) -> &Path {
+        &self.genesis_block_path
     }
 
-    pub fn genesis_block_hash(&self) -> &String {
-        &self.inner.genesis_block_hash
-    }
-
-    pub fn node_config_path(&self) -> &PathBuf {
-        &self.inner.node_config_path
+    pub fn genesis_block_hash(&self) -> &str {
+        &self.genesis_block_hash
     }
 
     pub fn rewards_history(&self) -> bool {
-        self.inner.rewards_history
+        self.rewards_history
     }
 
-    pub fn log_file_path(&self) -> Option<PathBuf> {
-        self.inner.log_file_path()
+    pub fn log_file_path(&self) -> Option<&Path> {
+        self.node_config.log_file_path()
     }
 
     pub fn secret_model_paths_mut(&mut self) -> &mut Vec<PathBuf> {
-        &mut self.inner.secret_model_paths
+        &mut self.secret_model_paths
     }
 
     pub fn secret_models_mut(&mut self) -> &mut Vec<NodeSecret> {
-        &mut self.inner.secret_models
+        &mut self.secret_models
     }
 
     pub fn secret_model_paths(&self) -> &Vec<PathBuf> {
-        &self.inner.secret_model_paths
+        &self.secret_model_paths
     }
 
     pub fn secret_models(&self) -> &Vec<NodeSecret> {
-        &self.inner.secret_models
+        &self.secret_models
     }
 
-    pub fn get_node_address(&self) -> String {
-        format!("http://{}/api", self.node_config().rest.listen)
+    pub fn rest_uri(&self) -> String {
+        format!("http://{}/api", self.node_config.rest_socket_addr())
     }
 
-    pub fn node_config(&self) -> NodeConfig {
-        let content = file_utils::read_file(&self.inner.node_config_path);
-        serde_yaml::from_str(&content).expect("Canot serialize node config")
+    pub fn node_config(&self) -> &Conf {
+        &self.node_config
     }
 
-    pub fn refresh_node_dynamic_params(&mut self) {
-        let node_config = self.regenerate_ports();
-        self.update_node_config(node_config);
+    pub fn refresh_instance_params(&mut self, temp_dir: &TempDir) {
+        self.regenerate_ports();
+        let log_file = temp_dir.child("node.log");
+        self.node_config.update_log_file_path(log_file.path());
     }
 
-    fn update_node_config(&mut self, node_config: NodeConfig) {
-        self.inner.node_config_path = NodeConfigBuilder::serialize(&node_config);
-    }
-
-    fn regenerate_ports(&mut self) -> NodeConfig {
-        let mut node_config = self.node_config();
-        node_config.rest.listen = format!("127.0.0.1:{}", super::get_available_port().to_string())
+    fn regenerate_ports(&mut self) {
+        self.node_config.set_rest_socket_addr(SocketAddr::new(
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
+            super::get_available_port(),
+        ));
+        self.node_config.set_p2p_public_address(
+            format!(
+                "/ip4/127.0.0.1/tcp/{}",
+                super::get_available_port().to_string()
+            )
             .parse()
-            .unwrap();
-        node_config.p2p.public_address = format!(
-            "/ip4/127.0.0.1/tcp/{}",
-            super::get_available_port().to_string()
-        )
-        .parse()
-        .unwrap();
-        node_config
+            .unwrap(),
+        );
     }
 
     pub fn fees(&self) -> LinearFee {
-        self.inner
-            .block0_configuration
+        self.block0_configuration
             .blockchain_configuration
             .linear_fees
             .clone()
     }
 
     pub fn get_p2p_listen_port(&self) -> u16 {
-        let address = self.node_config().p2p.get_listen_address().to_string();
+        let address = self.node_config.p2p_listen_address().to_string();
         let tokens: Vec<&str> = address.split("/").collect();
+        assert_eq!(
+            tokens.get(3),
+            Some(&"tcp"),
+            "expected a tcp part in p2p.public_address"
+        );
         let port_str = tokens
             .get(4)
             .expect("cannot extract port from p2p.public_address");
         port_str.parse().unwrap()
-    }
-
-    pub fn as_trusted_peer(&self) -> TrustedPeer {
-        self.node_config().p2p.make_trusted_peer_setting()
     }
 
     pub fn block0_utxo(&self) -> Vec<UTxOInfo> {
@@ -190,14 +187,12 @@ impl JormungandrConfig {
     }
 }
 
-impl Default for JormungandrConfig {
-    fn default() -> JormungandrConfig {
-        ConfigurationBuilder::new().build()
-    }
-}
-
-impl Into<BackwardCompatibleConfig> for JormungandrConfig {
-    fn into(self) -> BackwardCompatibleConfig {
-        self.inner
+impl<Conf: Serialize> JormungandrParams<Conf> {
+    pub fn write_node_config(&self, temp_dir: &TempDir) -> PathBuf {
+        let content =
+            serde_yaml::to_string(&self.node_config).expect("cannot serialize node config");
+        let file = temp_dir.child("node_config.yml");
+        file.write_str(&content);
+        file.path().into()
     }
 }

@@ -1,6 +1,5 @@
 use crate::common::{
-    configuration::jormungandr_config::JormungandrConfig,
-    file_utils,
+    configuration::jormungandr_config::JormungandrParams,
     jormungandr::starter::{Starter, StartupError},
     jormungandr::JormungandrProcess,
 };
@@ -10,6 +9,9 @@ use jormungandr_testing_utils::testing::network_builder::NodeSetting;
 use jormungandr_testing_utils::testing::network_builder::{
     LeadershipMode, PersistenceMode, Settings, SpawnParams, Wallet,
 };
+
+use assert_fs::prelude::*;
+use assert_fs::TempDir;
 use std::path::PathBuf;
 use thiserror::Error;
 
@@ -23,13 +25,13 @@ pub enum ControllerError {
     IOError(#[from] std::io::Error),
     #[error("serialization error")]
     SerializationError(#[from] serde_yaml::Error),
-    #[error("serialization error")]
+    #[error("node startup error")]
     SpawnError(#[from] StartupError),
 }
 
 pub struct Controller {
     settings: Settings,
-    working_directory: PathBuf,
+    working_directory: TempDir,
     block0_file: PathBuf,
     block0_hash: HeaderId,
 }
@@ -38,19 +40,14 @@ impl Controller {
     pub fn new(
         title: &str,
         settings: Settings,
-        working_directory: PathBuf,
+        working_directory: TempDir,
     ) -> Result<Self, ControllerError> {
-        let working_directory = working_directory.join(title);
-        std::fs::DirBuilder::new()
-            .recursive(true)
-            .create(&working_directory)?;
-
         use chain_core::property::Serialize as _;
 
         let block0 = settings.block0.to_block();
         let block0_hash = block0.header.hash();
 
-        let block0_file = working_directory.join("block0.bin");
+        let block0_file = working_directory.child("block0.bin").path().into();
         let file = std::fs::File::create(&block0_file)?;
         block0.serialize(file)?;
 
@@ -135,36 +132,33 @@ impl Controller {
             .map_err(|e| ControllerError::SpawnError(e))
     }
 
-    pub fn make_config_for(
+    fn make_config_for(
         &mut self,
         spawn_params: &mut SpawnParams,
-    ) -> Result<JormungandrConfig, ControllerError> {
-        let mut node_setting = self.node_settings(&spawn_params.alias)?.clone();
+    ) -> Result<JormungandrParams, ControllerError> {
+        let mut node_setting = self.node_settings(&spawn_params.alias)?;
         spawn_params.override_settings(&mut node_setting.config);
 
-        let dir = file_utils::get_path_in_temp("network").join(&node_setting.alias);
+        let dir = self.working_directory.child(&node_setting.alias);
 
         if let PersistenceMode::Persistent = spawn_params.get_persistence_mode() {
-            let path_to_storage = dir.join("storage");
+            let path_to_storage = dir.child("storage").path().into();
             node_setting.config.storage = Some(path_to_storage);
         }
 
-        std::fs::DirBuilder::new().recursive(true).create(&dir)?;
+        dir.create_dir_all().unwrap();
 
-        let config_file = dir.join("node_config.xml");
-        let config_secret = dir.join("node_secret.xml");
-
-        serde_yaml::to_writer(std::fs::File::create(&config_file)?, node_setting.config())?;
+        let config_secret = dir.child("node_secret.xml").path().into();
 
         serde_yaml::to_writer(
             std::fs::File::create(&config_secret)?,
             node_setting.secrets(),
         )?;
 
-        Ok(JormungandrConfig::new(
-            self.block0_file.as_path().into(),
+        Ok(JormungandrParams::new(
+            self.block0_file.clone(),
             self.block0_hash.to_string(),
-            config_file,
+            node_setting.config().clone(),
             vec![config_secret],
             self.settings.block0.clone(),
             vec![node_setting.secrets().clone()],

@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Log(pub Vec<LogEntry>);
@@ -16,35 +16,28 @@ pub struct LogEntry {
 pub enum LogOutput {
     Stdout,
     Stderr,
-    File(String),
+    File(PathBuf),
 }
 
 impl Log {
-    pub fn log_file(&self) -> Option<PathBuf> {
-        match self.file_logger_entry() {
-            Some(log_entry) => match log_entry.output {
-                LogOutput::File(file) => Some(PathBuf::from(file)),
-                _ => None,
-            },
-            None => None,
-        }
+    pub fn file_path(&self) -> Option<&Path> {
+        self.0.iter().find_map(|log_entry| match &log_entry.output {
+            LogOutput::File(path) => Some(path.as_path()),
+            _ => None,
+        })
     }
 
-    pub fn file_logger_entry(&self) -> Option<LogEntry> {
-        self.0.iter().cloned().find(|x| Log::is_file_logger(x))
-    }
-
-    fn is_file_logger(log_entry: &LogEntry) -> bool {
-        match log_entry.output {
-            LogOutput::File(_) => true,
-            _ => false,
-        }
-    }
-
-    pub fn update_file_logger_location(&mut self, output: String) {
-        for logger in self.0.iter_mut() {
-            if Self::is_file_logger(&logger) {
-                logger.output = LogOutput::File(output.clone())
+    /// Finds the first `LogOutput::File` entry
+    /// and updates its path to the one given.
+    /// If no such entry is found, this function does nothing.
+    pub fn update_file_path(&mut self, path: impl Into<PathBuf>) {
+        for log_entry in self.0.iter_mut() {
+            match &mut log_entry.output {
+                LogOutput::File(path_buf) => {
+                    *path_buf = path.into();
+                    break;
+                }
+                _ => {}
             }
         }
     }

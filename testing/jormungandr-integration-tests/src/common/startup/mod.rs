@@ -1,5 +1,5 @@
 use crate::common::{
-    configuration::{jormungandr_config::JormungandrConfig, SecretModelFactory},
+    configuration::{jormungandr_config::JormungandrParams, SecretModelFactory},
     file_utils, jcli_wrapper,
     jormungandr::{ConfigurationBuilder, JormungandrProcess, Starter, StartupError},
     process_utils,
@@ -17,21 +17,27 @@ use jormungandr_testing_utils::{
     testing::{signed_delegation_cert, signed_stake_pool_cert},
     wallet::Wallet,
 };
+
+use assert_fs::fixture::{ChildPath, PathChild};
+use assert_fs::prelude::*;
 use rand;
 use std::path::PathBuf;
 
-pub fn build_genesis_block(block0_config: &Block0Configuration) -> PathBuf {
-    let input_yaml_file_path = serialize_block0_config(&block0_config);
-    let path_to_output_block = file_utils::get_path_in_temp("block-0.bin");
-    jcli_wrapper::assert_genesis_encode(&input_yaml_file_path, &path_to_output_block);
+pub fn build_genesis_block(
+    block0_config: &Block0Configuration,
+    temp_dir: &impl PathChild,
+) -> PathBuf {
+    let config_file = temp_dir.child("genesis.yaml");
+    write_block0_config(&block0_config, &config_file);
+    let output_block_file = temp_dir.child("block-0.bin");
+    jcli_wrapper::assert_genesis_encode(config_file.path(), &output_block_file);
 
-    path_to_output_block
+    output_block_file.path().into()
 }
 
-pub fn serialize_block0_config(block0_config: &Block0Configuration) -> PathBuf {
+pub fn write_block0_config(block0_config: &Block0Configuration, output_file: &ChildPath) {
     let content = serde_yaml::to_string(&block0_config).unwrap();
-    let input_yaml_file_path = file_utils::create_file_in_temp("genesis.yaml", &content);
-    input_yaml_file_path
+    output_file.write_str(&content).unwrap();
 }
 
 pub fn create_new_utxo_address() -> Wallet {
@@ -133,7 +139,7 @@ pub fn start_stake_pool(
         .map(|process| (process, stake_pools))
 }
 
-pub fn sleep_till_epoch(epoch_interval: u32, grace_period: u32, config: &JormungandrConfig) {
+pub fn sleep_till_epoch(epoch_interval: u32, grace_period: u32, config: &JormungandrParams) {
     let coeff = epoch_interval * 2;
     let slots_per_epoch: u32 = config
         .block0_configuration()
@@ -149,6 +155,6 @@ pub fn sleep_till_epoch(epoch_interval: u32, grace_period: u32, config: &Jormung
     process_utils::sleep(wait_time.into());
 }
 
-pub fn sleep_till_next_epoch(grace_period: u32, config: &JormungandrConfig) {
+pub fn sleep_till_next_epoch(grace_period: u32, config: &JormungandrParams) {
     sleep_till_epoch(1, grace_period, config);
 }

@@ -2,8 +2,10 @@
 
 use super::configuration;
 use super::Discrimination;
-use crate::common::file_utils;
-use std::path::PathBuf;
+
+use assert_fs::prelude::*;
+use assert_fs::NamedTempFile;
+use std::path::Path;
 use std::process::Command;
 
 /// Get genesis encode command.
@@ -14,32 +16,32 @@ use std::process::Command;
 /// * `path_to_output_block` - Path to output block file
 ///
 pub fn get_genesis_encode_command(
-    genesis_yaml_file_path: &PathBuf,
-    path_to_output_block: &PathBuf,
+    genesis_yaml_file_path: &Path,
+    path_to_output_block: &Path,
 ) -> Command {
     let mut command = get_jcli_command();
     command
         .arg("genesis")
         .arg("encode")
         .arg("--input")
-        .arg(genesis_yaml_file_path.as_os_str())
+        .arg(genesis_yaml_file_path)
         .arg("--output")
-        .arg(path_to_output_block.as_os_str());
+        .arg(path_to_output_block);
     command
 }
 
 pub fn get_genesis_decode_command(
-    genesis_yaml_file_path: &PathBuf,
-    path_to_output_block: &PathBuf,
+    genesis_yaml_file_path: &Path,
+    path_to_output_block: &Path,
 ) -> Command {
     let mut command = get_jcli_command();
     command
         .arg("genesis")
         .arg("decode")
         .arg("--input")
-        .arg(genesis_yaml_file_path.as_os_str())
+        .arg(genesis_yaml_file_path)
         .arg("--output")
-        .arg(path_to_output_block.as_os_str());
+        .arg(path_to_output_block);
     command
 }
 
@@ -49,13 +51,13 @@ pub fn get_genesis_decode_command(
 ///
 /// * `path_to_output_block` - Path to output block file
 ///
-pub fn get_genesis_hash_command(path_to_output_block: &PathBuf) -> Command {
+pub fn get_genesis_hash_command(path_to_output_block: &Path) -> Command {
     let mut command = get_jcli_command();
     command
         .arg("genesis")
         .arg("hash")
         .arg("--input")
-        .arg(path_to_output_block.as_os_str());
+        .arg(path_to_output_block);
     command
 }
 
@@ -227,8 +229,8 @@ pub fn get_address_delegation_command(
 
 /// Get post transaction command.
 pub fn get_post_transaction_command(transaction_hash: &str, host: &str) -> Command {
-    let transaction_hash_file_path =
-        file_utils::create_file_in_temp("transaction.hash", &transaction_hash);
+    let hash_file = NamedTempFile::new("transaction.hash").unwrap();
+    hash_file.write_str(transaction_hash).unwrap();
     let mut command = get_jcli_command();
     command
         .arg("rest")
@@ -236,7 +238,7 @@ pub fn get_post_transaction_command(transaction_hash: &str, host: &str) -> Comma
         .arg("message")
         .arg("post")
         .arg("-f")
-        .arg(&transaction_hash_file_path)
+        .arg(hash_file.path())
         .arg("-h")
         .arg(&host);
     command
@@ -276,32 +278,33 @@ pub fn get_key_generate_with_seed_command(key_type: &str, seed: &str) -> Command
 /// Get key to public command
 pub fn get_key_to_public_command(private_key: &str) -> Command {
     let mut command = get_jcli_command();
-    let secret_file_key = file_utils::create_file_in_temp("secret_file_key", &private_key);
+    let secret_key_file = NamedTempFile::new("secret_key").unwrap();
+    secret_key_file.write_str(private_key).unwrap();
     command
         .arg("key")
         .arg("to-public")
         .arg("--input")
-        .arg(&secret_file_key);
+        .arg(secret_key_file.path());
     command
 }
 
 /// Get key to public command
-pub fn get_key_to_bytes_command(input_file: &PathBuf, output_file: &PathBuf) -> Command {
+pub fn get_key_to_bytes_command(input_file: &Path, output_file: &Path) -> Command {
     let mut command = get_jcli_command();
     command
         .arg("key")
         .arg("to-bytes")
-        .arg(output_file.as_os_str())
-        .arg(input_file.as_os_str());
+        .arg(output_file)
+        .arg(input_file);
     command
 }
 
-pub fn get_key_from_bytes_command(input_file: &PathBuf, key_type: &str) -> Command {
+pub fn get_key_from_bytes_command(input_file: &Path, key_type: &str) -> Command {
     let mut command = get_jcli_command();
     command
         .arg("key")
         .arg("from-bytes")
-        .arg(input_file.as_os_str())
+        .arg(input_file)
         .arg("--type")
         .arg(&key_type);
     command
@@ -320,7 +323,7 @@ pub fn get_rest_message_log_command(host: &str) -> Command {
 }
 
 fn get_jcli_command() -> Command {
-    let mut command = Command::new(configuration::get_jcli_app().as_os_str());
+    let mut command = Command::new(configuration::get_jcli_app());
     command.env(
         "JCLI_OPEN_API_VERIFY_PATH",
         configuration::get_openapi_path(),
@@ -329,7 +332,7 @@ fn get_jcli_command() -> Command {
 }
 
 pub fn get_rest_settings_command(host: &str) -> Command {
-    let mut command = Command::new(configuration::get_jcli_app().as_os_str());
+    let mut command = Command::new(configuration::get_jcli_app());
     command
         .arg("rest")
         .arg("v0")
@@ -341,7 +344,7 @@ pub fn get_rest_settings_command(host: &str) -> Command {
 }
 
 pub fn get_stake_pools_command(host: &str) -> Command {
-    let mut command = Command::new(configuration::get_jcli_app().as_os_str());
+    let mut command = Command::new(configuration::get_jcli_app());
     command
         .arg("rest")
         .arg("v0")
@@ -353,7 +356,7 @@ pub fn get_stake_pools_command(host: &str) -> Command {
 }
 
 pub fn get_stake_pool_command(stake_pool_id: &str, host: &str) -> Command {
-    let mut command = Command::new(configuration::get_jcli_app().as_os_str());
+    let mut command = Command::new(configuration::get_jcli_app());
     command
         .arg("rest")
         .arg("v0")

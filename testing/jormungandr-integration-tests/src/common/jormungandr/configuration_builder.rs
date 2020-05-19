@@ -1,21 +1,21 @@
 use crate::common::{
     configuration::{
-        jormungandr_config::JormungandrConfig, Block0ConfigurationBuilder, NodeConfigBuilder,
+        self, jormungandr_config::JormungandrParams, Block0ConfigurationBuilder, NodeConfigBuilder,
         SecretModelFactory,
     },
-    file_utils, jcli_wrapper,
+    jcli_wrapper,
     jormungandr::JormungandrProcess,
     startup::{build_genesis_block, create_new_key_pair},
 };
 use chain_crypto::Ed25519;
 use chain_impl_mockchain::{chaintypes::ConsensusVersion, fee::LinearFee};
 use jormungandr_lib::interfaces::{
-    ActiveSlotCoefficient, Block0Configuration, ConsensusLeaderId, EpochStabilityDepth, Initial,
-    InitialUTxO, KESUpdateSpeed, Log, Mempool, NumberOfSlotsPerEpoch, Policy, SignedCertificate,
+    ActiveSlotCoefficient, ConsensusLeaderId, EpochStabilityDepth, Initial, InitialUTxO,
+    KESUpdateSpeed, Log, Mempool, NodeConfig, NumberOfSlotsPerEpoch, Policy, SignedCertificate,
     SlotDuration, TrustedPeer,
 };
 
-use std::path::PathBuf;
+use assert_fs::fixture::{ChildPath, PathChild};
 
 pub struct ConfigurationBuilder {
     funds: Vec<Initial>,
@@ -77,7 +77,7 @@ impl ConfigurationBuilder {
         self
     }
     /*
-    pub fn with_block_hash_from(&mut self, config: &JormungandrConfig) -> &mut Self {
+    pub fn with_block_hash_from(&mut self, config: &JormungandrParams) -> &mut Self {
         self.with_block_hash(config.genesis_block_hash.clone())
     }*/
 
@@ -105,14 +105,9 @@ impl ConfigurationBuilder {
         self
     }
 
-    pub fn with_storage(&mut self, path: PathBuf) -> &mut Self {
-        self.node_config_builder.with_storage(path);
-        self
-    }
-
-    pub fn with_random_storage(&mut self) -> &mut Self {
+    pub fn with_storage(&mut self, temp_dir: &ChildPath) -> &mut Self {
         self.node_config_builder
-            .with_storage(file_utils::get_path_in_temp("storage"));
+            .with_storage(temp_dir.path().into());
         self
     }
 
@@ -162,7 +157,7 @@ impl ConfigurationBuilder {
 
     pub fn with_trusted_peer(&mut self, node: &JormungandrProcess) -> &mut Self {
         self.node_config_builder
-            .with_trusted_peers(vec![node.as_trusted_peer()]);
+            .with_trusted_peers(vec![node.to_trusted_peer()]);
         self
     }
 
@@ -182,15 +177,8 @@ impl ConfigurationBuilder {
         self
     }
 
-    pub fn serialize(block0_configuration: &Block0Configuration) -> PathBuf {
-        let content = serde_yaml::to_string(&block0_configuration).unwrap();
-        let input_yaml_file_path = file_utils::create_file_in_temp("genesis.yaml", &content);
-        input_yaml_file_path
-    }
-
-    pub fn build(&self) -> JormungandrConfig {
-        let node_config = self.node_config_builder.build();
-        let node_config_path = NodeConfigBuilder::serialize(&node_config);
+    pub fn build(&self, temp_dir: &impl PathChild) -> JormungandrParams<NodeConfig> {
+        let node_config = self.node_config_builder.build(temp_dir);
 
         let leader_key_pair = create_new_key_pair::<Ed25519>();
         let mut leaders_ids = self.consensus_leader_ids.clone();
@@ -212,20 +200,21 @@ impl ConfigurationBuilder {
             .with_linear_fees(self.linear_fees.clone())
             .build();
 
-        let path_to_output_block = build_genesis_block(&block0_config);
+        let path_to_output_block = build_genesis_block(&block0_config, temp_dir);
         let genesis_block_hash = match self.block0_hash {
             Some(ref value) => value.clone(),
             None => jcli_wrapper::assert_genesis_hash(&path_to_output_block),
         };
 
         let secret_model = SecretModelFactory::bft(leader_key_pair.signing_key());
-        let secret_model_path = SecretModelFactory::serialize(&secret_model);
+        let secret_model_file = temp_dir.child("node.secret");
+        configuration::write_secret(&secret_model, &secret_model_file);
 
-        JormungandrConfig::new(
+        JormungandrParams::new(
             path_to_output_block.clone(),
             genesis_block_hash,
-            node_config_path,
-            vec![secret_model_path],
+            node_config,
+            vec![secret_model_file.path().into()],
             block0_config,
             vec![secret_model],
             self.rewards_history,

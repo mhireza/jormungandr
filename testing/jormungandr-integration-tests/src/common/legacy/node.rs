@@ -1,5 +1,6 @@
-use super::{BackwardCompatibleConfig, BackwardCompatibleRest};
+use super::BackwardCompatibleRest;
 use crate::common::{
+    configuration::{JormungandrParams, TestConfig},
     explorer::Explorer,
     jcli_wrapper,
     jormungandr::{JormungandrError, JormungandrLogger},
@@ -12,8 +13,50 @@ use jormungandr_lib::{
     crypto::hash::Hash,
     interfaces::{BlockDate, FragmentLog},
 };
+use jormungandr_testing_utils::legacy::NodeConfig;
 use jormungandr_testing_utils::testing::{FragmentNode, FragmentNodeError, MemPoolCheck};
-use std::{collections::HashMap, path::PathBuf, process::Child, str::FromStr};
+
+use std::collections::HashMap;
+use std::net::SocketAddr;
+use std::path::{Path, PathBuf};
+use std::process::Child;
+use std::str::FromStr;
+
+impl TestConfig for NodeConfig {
+    fn log_file_path(&self) -> Option<&Path> {
+        self.log.as_ref().and_then(|log| log.file_path())
+    }
+
+    fn update_log_file_path(&mut self, path: impl Into<PathBuf>) {
+        if let Some(log) = self.log.as_mut() {
+            log.update_file_path(path);
+        }
+    }
+
+    fn p2p_listen_address(&self) -> poldercast::Address {
+        if let Some(address) = &self.p2p.listen_address {
+            address.clone()
+        } else {
+            self.p2p.public_address.clone()
+        }
+    }
+
+    fn p2p_public_address(&self) -> poldercast::Address {
+        self.p2p.public_address.clone()
+    }
+
+    fn set_p2p_public_address(&mut self, address: poldercast::Address) {
+        self.p2p.public_address = address;
+    }
+
+    fn rest_socket_addr(&self) -> SocketAddr {
+        self.rest.listen
+    }
+
+    fn set_rest_socket_addr(&mut self, addr: SocketAddr) {
+        self.rest.listen = addr;
+    }
+}
 
 impl FragmentNode for BackwardCompatibleJormungandr {
     fn alias(&self) -> &str {
@@ -48,16 +91,16 @@ impl FragmentNode for BackwardCompatibleJormungandr {
 pub struct BackwardCompatibleJormungandr {
     pub child: Child,
     pub logger: JormungandrLogger,
-    pub config: BackwardCompatibleConfig,
+    pub config: JormungandrParams<NodeConfig>,
     alias: String,
 }
 
 impl BackwardCompatibleJormungandr {
-    pub fn from_config(child: Child, config: BackwardCompatibleConfig, alias: String) -> Self {
+    pub fn from_config(child: Child, config: JormungandrParams<NodeConfig>, alias: String) -> Self {
         Self::new(
             child,
             alias,
-            config.log_file_path().expect("no log file defined").clone(),
+            config.log_file_path().expect("no log file defined"),
             config,
         )
     }
@@ -69,13 +112,13 @@ impl BackwardCompatibleJormungandr {
     pub fn new(
         child: Child,
         alias: String,
-        log_file_path: PathBuf,
-        config: BackwardCompatibleConfig,
+        log_file_path: impl Into<PathBuf>,
+        config: JormungandrParams<NodeConfig>,
     ) -> Self {
         Self {
             child: child,
             alias: alias,
-            logger: JormungandrLogger::new(log_file_path.clone()),
+            logger: JormungandrLogger::new(log_file_path.into()),
             config: config,
         }
     }
@@ -85,11 +128,11 @@ impl BackwardCompatibleJormungandr {
     }
 
     pub fn rest(&self) -> BackwardCompatibleRest {
-        BackwardCompatibleRest::new(self.config.get_node_address())
+        BackwardCompatibleRest::new(self.config.rest_uri())
     }
 
     pub fn shutdown(&self) {
-        jcli_wrapper::assert_rest_shutdown(&self.config.get_node_address());
+        jcli_wrapper::assert_rest_shutdown(&self.config.rest_uri());
     }
 
     pub fn fees(&self) -> LinearFee {
@@ -134,15 +177,15 @@ impl BackwardCompatibleJormungandr {
         Ok(())
     }
 
-    pub fn rest_address(&self) -> String {
-        self.config.get_node_address()
+    pub fn rest_uri(&self) -> String {
+        self.config.rest_uri()
     }
 
     pub fn genesis_block_hash(&self) -> Hash {
-        Hash::from_str(&self.config.genesis_block_hash).unwrap()
+        Hash::from_str(self.config.genesis_block_hash()).unwrap()
     }
 
-    pub fn config(&self) -> BackwardCompatibleConfig {
+    pub fn config(&self) -> JormungandrParams<NodeConfig> {
         self.config.clone()
     }
 
@@ -151,7 +194,7 @@ impl BackwardCompatibleJormungandr {
     }
 
     pub fn explorer(&self) -> Explorer {
-        Explorer::new(self.rest_address())
+        Explorer::new(self.rest_uri())
     }
 }
 

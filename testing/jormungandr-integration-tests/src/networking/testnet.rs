@@ -2,7 +2,7 @@
 
 use crate::{
     common::{
-        configuration::jormungandr_config::JormungandrConfig,
+        configuration::jormungandr_config::JormungandrParams,
         jcli_wrapper,
         jormungandr::{
             storage_loading_benchmark_from_log, ConfigurationBuilder, JormungandrProcess, Starter,
@@ -97,7 +97,7 @@ impl TestnetConfig {
         trusted_peers
     }
 
-    pub fn make_config(&self) -> JormungandrConfig {
+    pub fn make_config(&self) -> JormungandrParams {
         ConfigurationBuilder::new()
             .with_block_hash(self.block0_hash.to_string())
             .with_trusted_peers(self.trusted_peers.clone())
@@ -161,7 +161,7 @@ pub fn itn_bootstrap() {
 
     let config = ConfigurationBuilder::new()
         .with_block_hash(testnet_config.block0_hash())
-        .with_trusted_peers(vec![jormungandr_from_storage.as_trusted_peer()])
+        .with_trusted_peers(vec![jormungandr_from_storage.to_trusted_peer()])
         .build();
 
     let _jormungandr_from_local_trusted_peer = Starter::new()
@@ -209,7 +209,7 @@ pub fn nightly_bootstrap() {
 
     let config = ConfigurationBuilder::new()
         .with_block_hash(testnet_config.block0_hash())
-        .with_trusted_peers(vec![jormungandr_from_storage.as_trusted_peer()])
+        .with_trusted_peers(vec![jormungandr_from_storage.to_trusted_peer()])
         .build();
 
     let _jormungandr_from_local_trusted_peer = Starter::new()
@@ -258,7 +258,7 @@ pub fn qa_bootstrap() {
 
     let config = ConfigurationBuilder::new()
         .with_block_hash(testnet_config.block0_hash())
-        .with_trusted_peers(vec![jormungandr_from_storage.as_trusted_peer()])
+        .with_trusted_peers(vec![jormungandr_from_storage.to_trusted_peer()])
         .build();
 
     let _jormungandr_from_local_trusted_peer = Starter::new()

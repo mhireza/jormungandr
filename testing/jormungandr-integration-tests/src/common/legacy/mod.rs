@@ -4,24 +4,22 @@ use jormungandr_testing_utils::testing::{
 };
 
 mod configuration_builder;
-mod jormungandr_configuration;
 mod node;
 mod rest;
-mod starter;
 
 pub use configuration_builder::{
     LegacyConfigConverter, LegacyConfigConverterError, LegacyNodeConfigConverter,
 };
-pub use jormungandr_configuration::BackwardCompatibleConfig;
-pub use jormungandr_testing_utils::legacy::Version;
+pub use jormungandr_testing_utils::legacy::{NodeConfig, Version};
 pub use node::BackwardCompatibleJormungandr;
 pub use rest::BackwardCompatibleRest;
-pub use starter::Starter;
 
 use crate::common::file_utils;
+use assert_fs::prelude::*;
+use assert_fs::TempDir;
+use url::Url;
 
 use std::path::PathBuf;
-use url::Url;
 
 pub fn download_last_n_releases(n: usize) -> Vec<Release> {
     let github_api = GitHubApi::new();
@@ -35,7 +33,7 @@ pub fn download_last_n_releases(n: usize) -> Vec<Release> {
         .collect()
 }
 
-pub fn get_jormungandr_bin(release: &Release) -> PathBuf {
+pub fn get_jormungandr_bin(release: &Release, temp_dir: &TempDir) -> PathBuf {
     let github_api = GitHubApi::new();
     let asset = github_api
         .get_asset_for_current_os_by_version(release.version())
@@ -48,10 +46,10 @@ pub fn get_jormungandr_bin(release: &Release) -> PathBuf {
         .last()
         .expect("cannot get last element from path");
 
-    let version = release.version().replace(".", "_");
-    let output = file_utils::get_path_in_temp(&file_name);
-    download_file(asset.download_url(), &output).expect("cannot download file");
-    let decompressed = file_utils::create_folder(&format!("unpacked_{}", version));
-    decompress(&output, &decompressed).unwrap();
-    file_utils::find_file(&decompressed, "jormungandr").unwrap()
+    let output = temp_dir.child(&file_name);
+    download_file(asset.download_url(), output.path()).expect("cannot download file");
+    let release_dir = temp_dir.child(format!("release-{}", release.version()));
+    release_dir.create_dir_all().unwrap();
+    decompress(output.path(), release_dir.path()).unwrap();
+    file_utils::find_file(release_dir.path(), "jormungandr").unwrap()
 }

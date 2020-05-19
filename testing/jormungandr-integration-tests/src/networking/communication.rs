@@ -24,7 +24,7 @@ pub fn two_nodes_communication() {
         .unwrap();
 
     let trusted_node_config = ConfigurationBuilder::new()
-        .with_trusted_peers(vec![leader_jormungandr.as_trusted_peer()])
+        .with_trusted_peers(vec![leader_jormungandr.to_trusted_peer()])
         .with_block_hash(leader_config.genesis_block_hash().clone())
         .build();
 

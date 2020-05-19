@@ -1,5 +1,5 @@
 use super::{Controller, ControllerError};
-use crate::common::{configuration::NodeConfigBuilder, file_utils};
+use crate::common::configuration::NodeConfigBuilder;
 use chain_impl_mockchain::{chaintypes::ConsensusVersion, milli::Milli};
 use jormungandr_lib::interfaces::Value;
 use jormungandr_lib::interfaces::{
@@ -10,6 +10,8 @@ use jormungandr_testing_utils::testing::network_builder::{
     WalletAlias, WalletTemplate,
 };
 
+use assert_fs::prelude::*;
+use assert_fs::TempDir;
 use std::collections::HashMap;
 
 pub struct NetworkBuilder {
@@ -48,12 +50,15 @@ impl NetworkBuilder {
     }
 
     pub fn build(&self) -> Result<Controller, ControllerError> {
+        let temp_dir = TempDir::new().unwrap();
         let topology = self.topology_builder.clone().build();
         let mut blockchain = self.blockchain.clone().unwrap();
         let nodes: HashMap<NodeAlias, NodeSetting> = topology
             .into_iter()
             .map(|(alias, template)| {
-                let mut config = NodeConfigBuilder::new().build();
+                let node_dir = temp_dir.child(alias);
+                node_dir.create_dir_all().unwrap();
+                let mut config = NodeConfigBuilder::new().build(&node_dir);
                 if let Some(spawn_params) =
                     self.configs.clone().iter().find(|x| x.get_alias() == alias)
                 {
@@ -87,11 +92,8 @@ impl NetworkBuilder {
         }
 
         let settings = Settings::new(nodes, blockchain, &mut random);
-        Controller::new(
-            &self.title,
-            settings,
-            file_utils::get_path_in_temp(&self.title),
-        )
+        let controller_dir = temp_dir.child(self.title);
+        Controller::new(&self.title, settings, temp_dir)
     }
 }
 

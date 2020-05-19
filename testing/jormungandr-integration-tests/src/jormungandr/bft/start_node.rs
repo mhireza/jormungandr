@@ -16,7 +16,7 @@ pub fn test_jormungandr_passive_node_starts_successfully() {
         .unwrap();
 
     let passive_config = ConfigurationBuilder::new()
-        .with_trusted_peers(vec![jormungandr_leader.as_trusted_peer()])
+        .with_trusted_peers(vec![jormungandr_leader.to_trusted_peer()])
         .with_block_hash(leader_config.genesis_block_hash().clone())
         .build();
 

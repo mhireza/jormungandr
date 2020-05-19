@@ -18,4 +18,6 @@ pub mod networking;
 pub mod non_functional;
 
 pub mod common;
+pub use common::predicates as predicate;
+
 pub mod mock;
