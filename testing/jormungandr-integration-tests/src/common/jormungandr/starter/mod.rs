@@ -16,7 +16,7 @@ use jormungandr_testing_utils::testing::{
     network_builder::LeadershipMode, SpeedBenchmarkDef, SpeedBenchmarkRun,
 };
 
-use assert_fs::TempDir;
+use assert_fs::{fixture::FixtureError, TempDir};
 use serde::Serialize;
 use std::fmt::Debug;
 use std::path::PathBuf;
@@ -32,6 +32,8 @@ use thiserror::Error;
 pub enum StartupError {
     #[error("could not start jormungandr due to process issue")]
     JormungandrNotLaunched(#[from] ProcessError),
+    #[error("error setting up temporary filesystem fixture")]
+    FsFixture(#[from] FixtureError),
     #[error("failed to convert jormungandr configuration to a legacy version")]
     LegacyConfigConversion(#[from] LegacyConfigConverterError),
     #[error("node wasn't properly bootstrap after {timeout} s. Log file: {log_content}")]
@@ -164,7 +166,6 @@ impl<'a, Conf: TestConfig> StartupVerification for LogStartupVerification<'a, Co
 }
 
 pub struct Starter {
-    temp_dir: TempDir,
     timeout: Duration,
     jormungandr_app_path: PathBuf,
     sleep: u64,
@@ -181,7 +182,6 @@ pub struct Starter {
 impl Starter {
     pub fn new() -> Self {
         Starter {
-            temp_dir: TempDir::new().unwrap(),
             timeout: Duration::from_secs(300),
             sleep: 2,
             alias: "".to_owned(),
@@ -259,9 +259,9 @@ impl Starter {
         self
     }
 
-    fn build_configuration(&self) -> JormungandrParams {
+    fn build_configuration(&self, temp_dir: &TempDir) -> JormungandrParams {
         if self.config.is_none() {
-            self.config = Some(ConfigurationBuilder::new().build(&self.temp_dir));
+            self.config = Some(ConfigurationBuilder::new().build(temp_dir));
         }
         self.config.as_ref().unwrap().clone()
     }
@@ -283,67 +283,82 @@ impl Starter {
         &mut self,
         expected_msg_in_logs: &str,
     ) -> Result<(), StartupError> {
-        let config = self.build_configuration();
+        let temp_dir = TempDir::new()?;
+        let config = self.build_configuration(&temp_dir);
         if let Some(version) = self.legacy {
-            ConfiguredStarter::legacy(self, config, version)?
+            ConfiguredStarter::legacy(self, temp_dir, config, version)?
                 .start_with_fail_in_logs(expected_msg_in_logs)
         } else {
-            ConfiguredStarter::new(self, config).start_with_fail_in_logs(expected_msg_in_logs)
+            ConfiguredStarter::new(self, temp_dir, config)
+                .start_with_fail_in_logs(expected_msg_in_logs)
         }
     }
 
     pub fn start_async(&mut self) -> Result<JormungandrProcess, StartupError> {
-        let config = self.build_configuration();
+        let temp_dir = TempDir::new()?;
+        let config = self.build_configuration(&temp_dir);
         if let Some(version) = self.legacy {
-            ConfiguredStarter::legacy(self, config, version)?.start_async()
+            ConfiguredStarter::legacy(self, temp_dir, config, version)?.start_async()
         } else {
-            ConfiguredStarter::new(self, config).start_async()
+            ConfiguredStarter::new(self, temp_dir, config).start_async()
         }
     }
 
     pub fn start(&mut self) -> Result<JormungandrProcess, StartupError> {
-        let mut config = self.build_configuration();
+        let temp_dir = TempDir::new()?;
+        let config = self.build_configuration(&temp_dir);
         let benchmark = self.start_benchmark_run();
         let process = if let Some(version) = self.legacy {
-            ConfiguredStarter::legacy(self, config, version)?.start()?
+            ConfiguredStarter::legacy(self, temp_dir, config, version)?.start()?
         } else {
-            ConfiguredStarter::new(self, config).start()?
+            ConfiguredStarter::new(self, temp_dir, config).start()?
         };
         self.finish_benchmark(benchmark);
         Ok(process)
     }
 
     pub fn start_fail(&mut self, expected_msg: &str) {
-        let config = self.build_configuration();
+        let temp_dir = TempDir::new().unwrap();
+        let config = self.build_configuration(&temp_dir);
         if let Some(version) = self.legacy {
-            ConfiguredStarter::legacy(self, config, version)
+            ConfiguredStarter::legacy(self, temp_dir, config, version)
                 .unwrap()
                 .start_fail(expected_msg)
         } else {
-            ConfiguredStarter::new(self, config).start_fail(expected_msg)
+            ConfiguredStarter::new(self, temp_dir, config).start_fail(expected_msg)
         }
     }
 }
 
 struct ConfiguredStarter<'a, Conf> {
     starter: &'a Starter,
+    temp_dir: TempDir,
     params: JormungandrParams<Conf>,
 }
 
 impl<'a> ConfiguredStarter<'a, NodeConfig> {
-    fn new(starter: &'a Starter, params: JormungandrParams<NodeConfig>) -> Self {
-        ConfiguredStarter { starter, params }
+    fn new(starter: &'a Starter, temp_dir: TempDir, params: JormungandrParams<NodeConfig>) -> Self {
+        ConfiguredStarter {
+            starter,
+            temp_dir,
+            params,
+        }
     }
 }
 
 impl<'a> ConfiguredStarter<'a, legacy::NodeConfig> {
     fn legacy(
         starter: &'a Starter,
+        temp_dir: TempDir,
         params: JormungandrParams<NodeConfig>,
         version: legacy::Version,
     ) -> Result<Self, StartupError> {
         let params = LegacyConfigConverter::new(version).convert(params)?;
-        Ok(ConfiguredStarter { starter, params })
+        Ok(ConfiguredStarter {
+            starter,
+            temp_dir,
+            params,
+        })
     }
 }
 
@@ -392,7 +407,7 @@ where
             get_jormungandr_app(),
             self.starter.role,
             self.starter.from_genesis,
-            &self.starter.temp_dir,
+            &self.temp_dir,
         );
 
         println!("Bootstrapping...");
@@ -406,6 +421,7 @@ where
         Ok(JormungandrProcess::from_config(
             self.start_process(),
             &self.params,
+            self.temp_dir,
             self.starter.alias.clone(),
         ))
     }
@@ -415,9 +431,14 @@ where
         loop {
             let process = self.start_process();
 
-            match (self.verify_is_up(process), self.starter.on_fail) {
-                (Ok(jormungandr_process), _) => {
-                    return Ok(jormungandr_process);
+            match (self.verify_is_up(&process), self.starter.on_fail) {
+                (Ok(()), _) => {
+                    return Ok(JormungandrProcess::from_config(
+                        process,
+                        &self.params,
+                        self.temp_dir,
+                        self.starter.alias.clone(),
+                    ));
                 }
 
                 (
@@ -427,7 +448,7 @@ where
                     println!(
                         "Port already in use error detected. Retrying with different port... "
                     );
-                    self.params.refresh_instance_params(&self.starter.temp_dir);
+                    self.params.refresh_instance_params(&self.temp_dir);
                 }
                 (Err(err), OnFail::Panic) => {
                     panic!(format!(
@@ -456,7 +477,7 @@ where
             get_jormungandr_app(),
             self.starter.role,
             self.starter.from_genesis,
-            &self.starter.temp_dir,
+            &self.temp_dir,
         );
         process_assert::assert_process_failed_and_matches_message(command, &expected_msg);
     }
@@ -496,7 +517,7 @@ where
         }
     }
 
-    fn verify_is_up(&self, process: Child) -> Result<JormungandrProcess, StartupError> {
+    fn verify_is_up(&self, process: &Child) -> Result<(), StartupError> {
         let start = Instant::now();
         let log_file_path = self
             .params
@@ -513,11 +534,7 @@ where
             }
             if self.if_succeed() {
                 println!("jormungandr is up");
-                return Ok(JormungandrProcess::from_config(
-                    process,
-                    &self.params,
-                    self.starter.alias.clone(),
-                ));
+                return Ok(());
             }
             self.custom_errors_found()?;
             if self.if_stopped() {

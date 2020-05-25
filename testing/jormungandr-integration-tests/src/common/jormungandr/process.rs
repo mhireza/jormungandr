@@ -5,14 +5,16 @@ use crate::common::jcli_wrapper;
 use chain_impl_mockchain::fee::LinearFee;
 use jormungandr_lib::crypto::hash::Hash;
 use jormungandr_lib::interfaces::TrustedPeer;
+
+use assert_fs::TempDir;
 use std::net::SocketAddr;
 use std::process::Child;
 use std::str::FromStr;
 
-#[derive(Debug)]
 pub struct JormungandrProcess {
     pub child: Child,
     pub logger: JormungandrLogger,
+    temp_dir: TempDir,
     alias: String,
     p2p_public_address: poldercast::Address,
     rest_socket_addr: SocketAddr,
@@ -24,6 +26,7 @@ impl JormungandrProcess {
     pub(crate) fn from_config<Conf: TestConfig>(
         child: Child,
         config: &JormungandrParams<Conf>,
+        temp_dir: TempDir,
         alias: String,
     ) -> Self {
         let log_file_path = config.log_file_path().unwrap();
@@ -35,6 +38,7 @@ impl JormungandrProcess {
         let fees = config.fees();
         JormungandrProcess {
             child,
+            temp_dir,
             alias,
             logger,
             p2p_public_address,
