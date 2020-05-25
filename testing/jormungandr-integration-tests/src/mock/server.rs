@@ -26,7 +26,7 @@ pub use node::{
 };
 
 use chain_impl_mockchain::key::Hash;
-use futures_core::Stream;
+use futures::Stream;
 
 pub mod node {
     tonic::include_proto!("iohk.chain.node"); // The string specified here must match the proto package name
